@@ -45,7 +45,7 @@ color_top       = ColorSensor(Port.S3)                                          
 
 ##########~~~~~~~~~~HOMING POSITION ANGLES WHEN SENSOR ACTIVATED~~~~~~~~~~##########
 valve_pos = [115, 440, 765, 1090]                                                   #Position for each valve after homing
-pump_pos  = 1415                                                                   #Very safe position for many air pumping
+pump_pos  = 1415                                                                    #Very safe position for many air pumping
 
 
 ##########~~~~~~~~~~GEARING~~~~~~~~~~##########
@@ -217,8 +217,8 @@ def whack_a_mole():
     
     ev3.speaker.say("Building pressure")
     ev3.screen.draw_text(4, 48, "Pre pumping air pressure              ", text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
-    #pumping_pressure("Safe", 14400)
-    #pumping_pressure("Safe", 14400)
+    pumping_pressure("Safe", 14400)
+    pumping_pressure("Safe", 14400)
     ev3.screen.draw_text(4, 48, "Air pressure ok, game started         ", text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
     ev3.light.off()
     ev3.speaker.say("Game starting, show the correct color!")
@@ -227,7 +227,6 @@ def whack_a_mole():
         go_to_valve(next_valve, "Out", False)
         timer_strike.reset()
         timer_strike.resume()
-        ev3.speaker.beep(frequency=10, duration=1000)
         while timer_strike.time() < strikeout:
             whack_clr = color_top.color()
             if (next_valve == 0 and whack_clr == Color.GREEN) or (next_valve == 1 and whack_clr == Color.YELLOW) or (next_valve == 2 and whack_clr == Color.RED) or (next_valve == 3 and whack_clr == Color.BLUE):

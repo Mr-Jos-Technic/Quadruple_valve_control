@@ -68,14 +68,16 @@ carriage_motor.control.target_tolerances(1000, 10)                              
 
 
 ##########~~~~~~~~~~CREATING AND STARTING A TIMER, FOR INVERSE KINEMATIC SMOOTH CONTROL~~~~~~~~~~##########
-timer_strike  = StopWatch()                                                         #Creating the timer that will be used for calibration
+timer_strike  = StopWatch()                                                         #Creating the timer that will be used for gametime
 
 
 ##########~~~~~~~~~~BUILDING GLOBAL VARIABLES~~~~~~~~~~##########
+valve_open_time  = 400                                                              #Time a valve needs to stay open before closing again
+valve_open_angle =  50                                                              #Angle for the actuator to open a valve completely
 pump_fwd    = True                                                                  #Variable to know the last direction the compressor has been running
 cursor_pos  = 0                                                                     #Onscreen cursor position
 highscore   = 0                                                                     #Highscore value since program start
-
+counters    = [0, 0, 0, 0, 0]                                                       #Counters for amount of times extending a cylinder
 
 ##########~~~~~~~~~~BRICK STARTUP SETTINGS~~~~~~~~~~##########
 ev3.speaker.set_volume(volume=80, which='_all_')                                    #Set the volume for all sounds (speaking and beeps etc)
@@ -89,81 +91,81 @@ ev3.screen.clear()                                                              
 ev3.light.off()                                                                     #Turn the lights off on the brick
 
 
-##########~~~~~~~~~~CREATING A FILE THAT IS SAVED OFFLINE~~~~~~~~~~##########       #This is used to store your own last calibration values offline, so it will remember them next startup
-#os.remove("calibrationdata.txt")                                                   #This is for removing the file we will make next, this is for debugging for me, keep the # in front of it
-#create_file = open("calibrationdata.txt", "a")                                     #Create a file if it does not exist and open it, if it does exist, just open it
+##########~~~~~~~~~~CREATING A FILE THAT IS SAVED OFFLINE~~~~~~~~~~##########       #This is used to store your counters, so it will remember them next startup
+#os.remove("counterdata.txt")                                                       #This is for removing the file we will make next, this is for debugging for me, keep the # in front of it
+#create_file = open("counterdata.txt", "a")                                         #Create a file if it does not exist and open it, if it does exist, just open it
 #create_file.write("")                                                              #Write the default values to the file, for first ever starttup so it holds values
 #create_file.close()                                                                #Close the file again, to be able to call it later again
 
-#with open("calibrationdata.txt") as retrieve_data:                                 #Open the offline data file
+#with open("counterdata.txt") as retrieve_data:                                     #Open the offline data file
 #    data_retrieval_string = retrieve_data.read().splitlines()                      #The data is in the Type: String , read the complete file line by line
-#if len(data_retrieval_string) < 12: data_background_offline = limits_scanned       #Check if there are 12 values in the string list, if not then it is first start of this program ever
-#else:                                                                              #If there are 12 then it will convert the String to a Integer list.
+#if len(data_retrieval_string) < 5: data_background_offline = counters              #Check if there are 5 values in the string list, if not then it is first start of this program ever
+#else:                                                                              #If there are 5 then it will convert the String to a Integer list.
 #    data_background_offline = []
 #    for x in data_retrieval_string:
 #        data_background_offline.append(int(x))
-#limits_scanned = data_background_offline                                           #The background color is now defined from the offline file (last calibration done)
+#counters = data_background_offline                                                 #The counters are now defined from the offline file (last running)
 
 
 ##########~~~~~~~~~~CREATING FUNCTIONS THAT CAN BE CALLED TO PERFORM REPETITIVE OR SIMULTANEOUS TASKS~~~~~~~~~~##########
-#def save_offline_data():                                                           #This definition will save the current background limits to the offline file, if it is called
-#    with open("calibrationdata.txt", "w") as backup_data:
-#        for current_data in limits_scanned:
+#def save_offline_data():                                                           #This definition will save the current counter values to the offline file, if it is called
+#    with open("counterdata.txt", "w") as backup_data:
+#        for current_data in counters:
 #            backup_data.write(str(current_data) + "\n")
 
 
-def open_valve(direction):
-    if direction == "Out":
-        valve_actuator.run_target(900,  50, then=Stop.COAST, wait=True)
-        wait(400)
-        while color_top.color() != None and cursor_pos == 1: continue
-        valve_actuator.run_target(900, -20, then=Stop.HOLD, wait=True)
-        wait(100)
-        valve_actuator.run_target(900,   0, then=Stop.HOLD, wait=True)
-    elif direction == "In":
-        valve_actuator.run_target(900, -50, then=Stop.COAST, wait=True)
-        wait(400)
+def open_valve(direction):                                                          #Definition to be called to open 1 valve, the direction is given
+    if direction == "Out":                                                          #If the given is extending out the cylinder
+        valve_actuator.run_target(900,  valve_open_angle, then=Stop.COAST, wait=True)   #Turn the lever 50° with a coast ending, so there's no stress on the motor
+        wait(valve_open_time)                                                       #Wait a certain time to allow the cylinder to extend completely
+        while color_top.color() != None and cursor_pos == 1: continue               #In play mode, wait for retracting until the color is away from the sensor
+        valve_actuator.run_target(900, -20, then=Stop.HOLD, wait=True)              #Run the actuator over center back to put the lever in center position
+        #wait(100)                                                                  #TODO check if it keeps working fine without this wait block
+        valve_actuator.run_target(900,   0, then=Stop.HOLD, wait=True)              #Align the actuator back to center, no more tension on the lever now
+    elif direction == "In":                                                         #If the given is retracting the cylinder
+        valve_actuator.run_target(900, -valve_open_angle, then=Stop.COAST, wait=True)
+        wait(valve_open_time)
         while color_top.color() != None and cursor_pos == 1: continue
         valve_actuator.run_target(900,  15, then=Stop.HOLD, wait=True)
-        wait(100)
+        #wait(100)                                                                  #TODO check need
         valve_actuator.run_target(900,   0, then=Stop.HOLD, wait=True)
 
 
-def pumping_pressure(pos, length):
-    global pump_fwd
+def pumping_pressure(pos, length):                                                  #Definition to pre-pressurize the system, or pump a little extra
+    global pump_fwd                                                                 #Global variable to check the next direction to turn
 
-    if pos == "Safe":
-        ev3.light.on(Color.ORANGE) 
-        carriage_motor.run_target(900, pump_pos, then=Stop.COAST, wait=True) 
-    if pump_fwd == True:
-        valve_actuator.run_target(900, length, then=Stop.HOLD, wait=True)
-        wait(50)
-        valve_actuator.reset_angle(valve_actuator.angle() - length)
-        pump_fwd = False
+    if pos == "Safe":                                                               #Most safe position to pressurize a long time (near the motor)
+        ev3.light.on(Color.ORANGE)                                                  #Illuminate the Red+Green LED (to make Orange)
+        carriage_motor.run_target(900, pump_pos, then=Stop.COAST, wait=True)        #Make the carriage go to a safe spot and let it coast (if it would hit anything during pumping, it will just move)
+    if pump_fwd == True:                                                            #If the next direction to pump is forward
+        valve_actuator.run_target(900, length, then=Stop.HOLD, wait=True)           #Run the compressor for a given duration (Only run in increments of 360°!! to keep the actuator flat, so it passes valves)
+        wait(50)                                                                    #Wait for the motor to stand completely still (so the encoder value will not change anymore)
+        valve_actuator.reset_angle(valve_actuator.angle() - length)                 #Remove the length turned from the encoder value, so any deviation remains.
+        pump_fwd = False                                                            #Overwrite the next direction to turn
     else:
         valve_actuator.run_target(900, -length, then=Stop.HOLD, wait=True)
         wait(50)
         valve_actuator.reset_angle(valve_actuator.angle() + length)
         pump_fwd = True
-    if pos == "Safe": ev3.light.on(Color.GREEN)
+    if pos == "Safe": ev3.light.on(Color.GREEN)                                     #If it was pumping in the safe spot, with orange light on, make it now green
 
 
-def go_to_valve(pos, operation, pump):
-    carriage_motor.run_target(900, valve_pos[pos], then=Stop.HOLD, wait=True)
-    if   operation == "Out": open_valve("Out")
-    elif operation == "In" : open_valve("In")
-    elif operation == "In out":
+def go_to_valve(pos, operation, pump):                                              #Definiton to make a complete operation of the valve incl extra pumping
+    carriage_motor.run_target(900, valve_pos[pos], then=Stop.HOLD, wait=True)       #Make the carriage go to the desired valve location
+    if   operation == "Out": open_valve("Out")                                      #If the operation is extending  the cylinder, run that definition
+    elif operation == "In" : open_valve("In")                                       #If the operation is retracting the cylinder, run that definition
+    elif operation == "In out":                                                     #If the operation is retract and direct extending, run both definition
         open_valve("In")
         open_valve("Out")
     elif operation == "Out in":
         open_valve("Out")
         open_valve("In")
-    if pump == True:
-        carriage_motor.run_target(900, valve_pos[pos]+162, then=Stop.COAST, wait=True)
-        pumping_pressure("Local", 1440)
+    if pump == True:                                                                #If extra pumping is required
+        carriage_motor.run_target(900, valve_pos[pos]+162, then=Stop.COAST, wait=True)  #Move right next to the current valve
+        pumping_pressure("Local", 1440)                                             #Pump for 4 rotations (Only run in increments of 360°!! to keep the actuator flat, so it passes valves)
 
 
-def preprogrammed():
+def preprogrammed():                                                                #Definition with some preset valve operations (menu cursor position 1)
     pumping_pressure("Safe", 7200)                                                  #Go to the safe location with the carriage and do some pre-pumping to build pressure
 
     for x in range(4):                                                              #Perform the next task 4 times
@@ -174,9 +176,9 @@ def preprogrammed():
     ev3.light.off()
 
 
-def sensor_control():
-    global cursor_pos 
-    pumping_pressure("Safe", 7200)
+def sensor_control():                                                               #Definition to control the valves by showing colors to the color sensor
+    global cursor_pos                                                               #Use the global variable in this local area
+    pumping_pressure("Safe", 7200)                                                  #Start with pre-pressurizing
 
     while True:                                                                     #Start the loop that checks the visible color on the color sensor
         if color_top.color() == Color.GREEN:                                        #If it sees green
@@ -198,56 +200,54 @@ def sensor_control():
         elif color_top.color() == Color.WHITE:
             pumping_pressure("Safe", 7200)
             while color_top.color() != None: continue
-        elif ev3.buttons.pressed() == [Button.DOWN]:
-            cursor_pos += 1
-            ev3.light.off()
-            break
+        elif ev3.buttons.pressed() == [Button.DOWN]:                                #If you press the down button on the EV3
+            cursor_pos += 1                                                         #Make the cursor go down by 1
+            ev3.light.off()                                                         #Turn the LED's off
+            break                                                                   #Close this definition
         elif ev3.buttons.pressed() == [Button.UP]:
             cursor_pos -= 1
             ev3.light.off()
             break
-        else: continue
+        else: continue                                                              #Restart this loop
 
 
-def whack_a_mole():
-    global highscore
+def whack_a_mole():                                                                 #Definition to play a game of whack a mole
+    global highscore                                                                #Use the global variable in this local area
     onscreen_counter_line = "{}: {} {} "                                            #Create a text line with 3 blank spots, to be filled in later
     score = 0                                                                       #Set the score to 0 points
-    strikeout = 1000                                                                #ms time for showing the correct color
+    strikeout = 1000                                                                #ms time you have for showing the correct color
     
-    ev3.speaker.say("Building pressure")
-    ev3.screen.draw_text(4, 48, "Pre pumping air pressure              ", text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
-    pumping_pressure("Safe", 14400)
-    pumping_pressure("Safe", 14400)
-    ev3.screen.draw_text(4, 48, "Air pressure ok, game started         ", text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
-    ev3.light.off()
+    ev3.speaker.say("Building pressure")                                            #Make the EV3 speak
+    ev3.screen.draw_text(4, 48, "Pre pumping air pressure              ", text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen
+    pumping_pressure("Safe", 14400)                                                 #Start with pre-pressurizing
+    pumping_pressure("Safe", 14400)                                                 #Continue with pre-pressurizing, it will be in the other direction now
+    ev3.screen.draw_text(4, 48, "Air pressure ok, game started         ", text_color=Color.BLACK, background_color=Color.WHITE)
+    ev3.light.off()                                                                 #Turn the LED's off
     ev3.speaker.say("Game starting, show the correct color!")
-    while True:
-        next_valve = choice([0,1,2,3])
-        go_to_valve(next_valve, "Out", False)
-        timer_strike.reset()
-        timer_strike.resume()
-        while timer_strike.time() < strikeout:
-            whack_clr = color_top.color()
-            if (next_valve == 0 and whack_clr == Color.GREEN) or (next_valve == 1 and whack_clr == Color.YELLOW) or (next_valve == 2 and whack_clr == Color.RED) or (next_valve == 3 and whack_clr == Color.BLUE):
-                timer_strike.pause()
-                break
-        #print(timer_strike.time())
-        if timer_strike.time() >= strikeout:
+    while True:                                                                     #Start a forever loop
+        next_valve = choice([0,1,2,3])                                              #Randomly choose between the 5 valves
+        go_to_valve(next_valve, "Out", False)                                       #Run the definition to extend the cylinder
+        timer_strike.reset()                                                        #Put the timer back to 0
+        timer_strike.resume()                                                       #Restart the timer
+        while timer_strike.time() < strikeout:                                      #Whilst the timer is under the strikeout time
+            whack_clr = color_top.color()                                           #Check the color in front of the color sensor
+            if (next_valve == 0 and whack_clr == Color.GREEN) or (next_valve == 1 and whack_clr == Color.YELLOW) or (next_valve == 2 and whack_clr == Color.RED) or (next_valve == 3 and whack_clr == Color.BLUE) or (next_valve == 4 and whack_clr == Color.BROWN):
+                timer_strike.pause()                                                #If it matches the random chosen valve, stop the timer
+                break                                                               #Break out of this loop
+        if timer_strike.time() >= strikeout:                                        #Check if the player was to late
             ev3.screen.draw_text(4, 48, "GAME OVER                                        ", text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
-            ev3.light.on(Color.RED)
+            ev3.light.on(Color.RED)                                                 #Turn the red LED on
             ev3.screen.draw_text(4, 59, "                                                                  ", text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
-            if score > highscore:
-                highscore = score
+            if score > highscore:                                                   #Check if the current score is higher than the highscore
+                highscore = score                                                   #If it is, overwrite the highscore
                 ev3.screen.draw_text(4, 70, onscreen_counter_line.format("Highscore: ", int(highscore), "!"), text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
-            ev3.speaker.say("Game over!")
-            break
-        score += 1
+            ev3.speaker.say("Game over!")                                           #Make the EV3 say "Game over"
+            break                                                                   #Stop the main loop, running this game
+        score += 1                                                                  #If he was in time, add a scorepoint
         ev3.screen.draw_text(4, 59, onscreen_counter_line.format("Correct hits:", int(score), "times   "), text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
-        ev3.light.on(Color.GREEN)
-        if score < 3: ev3.speaker.say("Correct!")
-        go_to_valve(next_valve, "In", False)
-
+        ev3.light.on(Color.GREEN)                                                   #Turn the green LED on
+        if score =< 2: ev3.speaker.say("Correct!")                                  #The EV3 will call out a correct answer for the first 2 points
+        go_to_valve(next_valve, "In", False)                                        #Move the current extended cylinder back in
 
         if math.fmod(score, 10) == 0:                                               #After scoring 10points, build up more air pressure
             ev3.screen.draw_text(4, 48, "Extra pumping air pressure                                       ", text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
@@ -255,15 +255,15 @@ def whack_a_mole():
             pumping_pressure("Safe", 14400)
             ev3.light.off()
             ev3.screen.draw_text(4, 48, "Air pressure ok game continues faster         ", text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
-            if strikeout > 200: strikeout -= 200                                    #200ms less time each 10points, until minimal 200ms
+            if strikeout > 200: strikeout -= 200                                    #200ms less time each 10points scored, until minimal 200ms
         ev3.light.off()
 
 
 def pushingbuttons():                                                               #Function to wait for a button to be pressed on the EV3 brick, and return which one was pressed
-    while True:
-        if   ev3.buttons.pressed() == [Button.UP]:
-            wait_for_release_buttons()
-            return "up"
+    while True:                                                                     #Start a forever loop
+        if   ev3.buttons.pressed() == [Button.UP]:                                  #If only the up button is currently pressed
+            wait_for_release_buttons()                                              #Start the definition that waits for all buttons to be released (to prevent double tapping)
+            return "up"                                                             #Answer the definition call with up
         if ev3.buttons.pressed() == [Button.DOWN]:
             wait_for_release_buttons()
             return "down"
@@ -301,13 +301,13 @@ def draw_text_lines_menu(selected):                                             
         ev3.screen.draw_text(4, 26, "Start the whack a mole game", text_color=Color.BLACK, background_color=Color.WHITE)        #Cursor pos 2
 
 
-def clear_screen():
+def clear_screen():                                                                 #Definition to clear everything from the screen
     ev3.screen.clear()                                                              #Empty the complete screen on the EV3 brick
     ev3.screen.draw_text(103, 114, "Mr Jos creation", text_color=Color.BLACK, background_color=Color.WHITE)     #Write text on the EV3 screen on the XY grid
 
     
-##########~~~~~~~~~~CREATING MULTITHREADS~~~~~~~~~~##########
-#sub_white_scanner = Thread(target=check_color_white)                                #Creating a multithread so the definition can run at the same time as the main program, if it's called
+##########~~~~~~~~~~CREATING MULTITHREADS~~~~~~~~~~##########                       #Not used in this program
+#sub_white_scanner = Thread(target=check_color_white)                               #Creating a multithread so the definition can run at the same time as the main program, if it's called
 
 
 ##########~~~~~~~~~~MAIN PROGRAM~~~~~~~~~~##########
@@ -319,7 +319,7 @@ carriage_motor.reset_angle(0)                                                   
 carriage_motor.run_target(900, valve_pos[0], then=Stop.COAST, wait=True)            #Move to the center of the first valve = [0]
 
 
-while True:
+while True:                                                                         #Start a forever loop
     draw_text_lines_menu(cursor_pos)                                                #Show on screen the selected mode currently
     lastpress = pushingbuttons()
     if   lastpress == "center":                                                     #If the last button press was the center button;
@@ -328,9 +328,4 @@ while True:
         elif cursor_pos == 2: whack_a_mole()                                        #Start the routine that allows you to play whack a mole!
     elif lastpress == "down" and cursor_pos < 2: cursor_pos += 1                    #Move the cursor position one line down
     elif lastpress == "up"   and cursor_pos > 0: cursor_pos -= 1                    #Move the cursor position one line up
-
-
-
-
-
 

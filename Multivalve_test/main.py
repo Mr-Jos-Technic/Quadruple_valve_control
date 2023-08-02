@@ -246,7 +246,7 @@ def whack_a_mole():                                                             
         score += 1                                                                  #If he was in time, add a scorepoint
         ev3.screen.draw_text(4, 59, onscreen_counter_line.format("Correct hits:", int(score), "times   "), text_color=Color.BLACK, background_color=Color.WHITE) #This will write on the EV3 screen the scorepoints
         ev3.light.on(Color.GREEN)                                                   #Turn the green LED on
-        if score =< 2: ev3.speaker.say("Correct!")                                  #The EV3 will call out a correct answer for the first 2 points
+        if score <= 2: ev3.speaker.say("Correct!")                                  #The EV3 will call out a correct answer for the first 2 points
         go_to_valve(next_valve, "In", False)                                        #Move the current extended cylinder back in
 
         if math.fmod(score, 10) == 0:                                               #After scoring 10points, build up more air pressure
